@@ -4,61 +4,45 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/socket.h>
+#include <sys/select.h>
 #include <sys/types.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
-#define PORT 80
+#define PORT 8080
 #define MAX_DATA_SIZE 80
 
 
-void wait_send(int *sock)
+void send_message(int *sock)
 {
     char sendbuf[MAX_DATA_SIZE];
-    printf("Sender mode on");
-    while(1)
+
+    memset(sendbuf, 0, MAX_DATA_SIZE);
+    // Обработка длины сообщения
+    fgets(sendbuf, MAX_DATA_SIZE, stdin);
+
+    int msg_length = strlen(sendbuf);
+    sendbuf[msg_length] = '\0';
+
+    if (send(*sock, sendbuf, msg_length+1, 0) < 0)
     {
-        memset(sendbuf, 0, MAX_DATA_SIZE);
-        // Проверка maxsize
-        fgets(sendbuf, MAX_DATA_SIZE, stdin);
-
-        int msg_length = strlen(sendbuf);
-        sendbuf[msg_length] = '\0';
-
-        if (send(*sock, sendbuf, msg_length+1, 0) < 0)
-        {
-            perror("Send failed");
-        }
+        perror("Send failed");
     }
 }
 
-void wait_recv(int *sock)
+void recv_message(int *sock)
 {
-    printf("Recv mode on");
     char recvbuf[MAX_DATA_SIZE];
     int msg_length;
-    while(1)
+
+    memset(recvbuf, 0, MAX_DATA_SIZE);
+    if (msg_length = recv(*sock, recvbuf, MAX_DATA_SIZE-1, 0) == -1)
     {
-        memset(recvbuf, 0, MAX_DATA_SIZE);
-        if (msg_length = recv(*sock, recvbuf, MAX_DATA_SIZE-1, 0) == -1)
-        {
-            perror("recv");
-            exit(1);
-        }
-        recvbuf[msg_length] = '\0';
-        printf("Received: %s", recvbuf);
+        perror("recv");
     }
-}
-
-void print1() {
-    printf("print1");
-    while(1) {};
-}
-
-void print2() {
-    printf("print2");
-    while(1) {};
+    recvbuf[msg_length] = '\0';
+    printf("Received: %s\n", recvbuf);
 }
 
 
@@ -100,25 +84,35 @@ int main(int argc, char *argv[])
 
     }
 
-    pid_t pid = fork();
+    fd_set read_fds;
 
-    if (pid < 0)
-    {
-        perror("Creating child process failed");
-        exit(-1);
+    FD_ZERO(&read_fds);
+    FD_SET(sock, &read_fds);
+    FD_SET(STDIN_FILENO, &read_fds);
+
+    int max_fd = (sock > STDIN_FILENO) ? sock : STDIN_FILENO;
+
+    while (1) {
+        fd_set temp_fds = read_fds;
+
+        // Бесконечно ждем активности
+        int activity = select(max_fd + 1, &temp_fds, NULL, NULL, NULL);
+        if (activity < 0) {
+            perror("Error in select");
+            exit(EXIT_FAILURE);
+        }
+
+        // Проверяем сообщение от сервера
+        if (FD_ISSET(sock, &temp_fds)) {
+            recv_message(&sock);
+        }
+
+        // Проверяем поток stdin
+        if (FD_ISSET(STDIN_FILENO, &temp_fds)) {
+            send_message(&sock);
+        }
+
     }
 
-    if (pid == 0)
-    {
-        printf("Child process (PID: %d)\n", getpid());
-        //wait_send(&sock);
-        print1();
-    }
-    else
-    {
-        printf("Parent process (PID: %d)\n", getpid());
-        //wait_recv(&sock);
-        print2();
-    }
     return 0;
 }

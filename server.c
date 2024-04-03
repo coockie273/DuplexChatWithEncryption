@@ -11,7 +11,7 @@
 #include <arpa/inet.h>
 
 #define MAX_DATA_SIZE 80
-#define PORT 80
+#define PORT 8080
 
 // get sockaddr, IPv4 or IPv6:
 void *get_in_addr(struct sockaddr *sa)
@@ -25,7 +25,6 @@ void *get_in_addr(struct sockaddr *sa)
 
 void send_message(int *sock)
 {
-    printf("Sender mode on");
     char sendbuf[MAX_DATA_SIZE];
 
     memset(sendbuf, 0, MAX_DATA_SIZE);
@@ -39,6 +38,7 @@ void send_message(int *sock)
     {
         perror("Send failed");
     }
+
 }
 
 void recv_message(int *sock)
@@ -52,8 +52,9 @@ void recv_message(int *sock)
         perror("recv");
     }
     recvbuf[msg_length] = '\0';
-    printf("Received: %s", recvbuf);
+    printf("Received: %s\n", recvbuf);
 }
+
 
 int main()
 {
@@ -114,7 +115,9 @@ int main()
 
     FD_ZERO(&read_fds);
     FD_SET(client_sock, &read_fds);
-    int max_fd = client_sock;
+    FD_SET(STDIN_FILENO, &read_fds);
+
+    int max_fd = (client_sock > STDIN_FILENO) ? client_sock : STDIN_FILENO;
 
     while (1) {
         fd_set temp_fds = read_fds;
