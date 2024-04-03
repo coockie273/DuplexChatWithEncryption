@@ -14,4 +14,4 @@ clean_client:
 	rm -f build/client
 
 clean:
-	rm -rf build/server
+	rm -rf build/

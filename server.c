@@ -4,12 +4,14 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/socket.h>
+#include <sys/select.h>
 #include <sys/types.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
-#define MAX_DATA_SIZE 128
+#define MAX_DATA_SIZE 80
+#define PORT 80
 
 // get sockaddr, IPv4 or IPv6:
 void *get_in_addr(struct sockaddr *sa)
@@ -21,91 +23,62 @@ void *get_in_addr(struct sockaddr *sa)
     return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
-void wait_send(int *fd)
+void send_message(int *sock)
 {
+    printf("Sender mode on");
     char sendbuf[MAX_DATA_SIZE];
-    while(1)
+
+    memset(sendbuf, 0, MAX_DATA_SIZE);
+    // Обработка длины сообщения
+    fgets(sendbuf, MAX_DATA_SIZE, stdin);
+
+    int msg_length = strlen(sendbuf);
+    sendbuf[msg_length] = '\0';
+
+    if (send(*sock, sendbuf, msg_length+1, 0) < 0)
     {
-        memset(sendbuf, 0, MAX_DATA_SIZE);
-        fgets(sendbuf, MAX_DATA_SIZE, stdin);
-
-        int msg_length = strlen(sendbuf);
-        sendbuf[msg_length] = '\0';
-
-        if (send(*fd, sendbuf, msg_length+1, 0) < 0)
-        {
-            printf("Send failed\n");
-            exit(1);
-        }
+        perror("Send failed");
     }
 }
 
-void wait_recv(int *fd)
+void recv_message(int *sock)
 {
     char recvbuf[MAX_DATA_SIZE];
     int msg_length;
-    while(1)
+
+    memset(recvbuf, 0, MAX_DATA_SIZE);
+    if (msg_length = recv(*sock, recvbuf, MAX_DATA_SIZE-1, 0) == -1)
     {
-        memset(recvbuf, 0, MAX_DATA_SIZE);
-        if (msg_length = recv(*fd, recvbuf, MAX_DATA_SIZE-1, 0) == -1)
-        {
-            perror("recv");
-            exit(1);
-        }
-        recvbuf[msg_length] = '\0';
-        printf("Received: %s", recvbuf);
+        perror("recv");
     }
+    recvbuf[msg_length] = '\0';
+    printf("Received: %s", recvbuf);
 }
 
-int main(int argc, char *argv[])
+int main()
 {
-    if (argc != 2)
-    {
-        printf("Usage: %s port\n", basename(argv[0]));
-        exit(-1);
-    }
-
-    char* port = argv[1];
-
-    int listener;
+    struct sockaddr_in addr;
     int yes = 1;
-    int rv;
 
-    struct addrinfo hints, *ai, *p;
-    memset(&hints, 0, sizeof(hints));
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-    hints.ai_flags = AI_PASSIVE;
+    int listener = socket(AF_INET, SOCK_STREAM, 0);
 
-    if (rv = getaddrinfo(NULL, port, &hints, &ai) != 0)
-    {
-        fprintf(stderr, "Selectserver: %s", gai_strerror(rv));
+    if (listener < 0) {
+        perror("Failed to create listener socket");
         exit(-1);
     }
 
-    for (p = ai; p != NULL; p = p->ai_next)
-    {
-        listener = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
-        if (listener < 0) continue;
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(PORT);
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
-        setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int));
+    setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int));
 
-        if (bind(listener, p->ai_addr, p->ai_addrlen) < 0)
-        {
-            close(listener);
-            continue;
-        }
+    if (bind(listener, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
 
-        break;
+       perror("Failed to bind listener");
+       exit(-1);
+
     }
-
-    if (p == NULL)
-    {
-        fprintf(stderr, "Selectserver: failed to bind\n");
-        exit(-1);
-    }
-
-    freeaddrinfo(ai);
 
     printf("Binding successfull\n");
 
@@ -116,15 +89,15 @@ int main(int argc, char *argv[])
     }
 
     printf("Waiting for incoming connection\n");
-    int fd;
+    int client_sock;
 
     while(1)
     {
         struct sockaddr_storage remoteaddr;
         socklen_t addrlen = sizeof(remoteaddr);
 
-        fd = accept(listener, (struct sockaddr *)&remoteaddr, &addrlen);
-        if (fd == -1) 
+        client_sock = accept(listener, (struct sockaddr *)&remoteaddr, &addrlen);
+        if (client_sock == -1)
         {
             perror("accept");
             continue;
@@ -136,18 +109,34 @@ int main(int argc, char *argv[])
         close(listener);
         break;
     }
-    pid_t pid = fork();
-        
-    if (pid < 0)
-    {
-        perror("Creating child process failed");
-        exit(-1);
-    }
 
-    if (pid == 0)
-        wait_send(&fd);
-    else
-        wait_recv(&fd);
+    fd_set read_fds;
+
+    FD_ZERO(&read_fds);
+    FD_SET(client_sock, &read_fds);
+    int max_fd = client_sock;
+
+    while (1) {
+        fd_set temp_fds = read_fds;
+
+        // Бесконечно ждем активности
+        int activity = select(max_fd + 1, &temp_fds, NULL, NULL, NULL);
+        if (activity < 0) {
+            perror("Error in select");
+            exit(EXIT_FAILURE);
+        }
+
+        // Проверяем сообщение от клиента
+        if (FD_ISSET(client_sock, &temp_fds)) {
+            recv_message(&client_sock);
+        }
+
+        // Проверяем поток stdin
+        if (FD_ISSET(STDIN_FILENO, &temp_fds)) {
+            send_message(&client_sock);
+        }
+
+    }
 
     return 0;
 }
