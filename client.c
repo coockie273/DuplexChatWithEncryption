@@ -10,7 +10,6 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
-#define PORT 8080
 #define MAX_DATA_SIZE 80
 
 
@@ -19,19 +18,25 @@ void send_message(int *sock)
     char sendbuf[MAX_DATA_SIZE];
 
     memset(sendbuf, 0, MAX_DATA_SIZE);
-    // Обработка длины сообщения
+    //Обработка длины сообщения
     fgets(sendbuf, MAX_DATA_SIZE, stdin);
 
     int msg_length = strlen(sendbuf);
     sendbuf[msg_length] = '\0';
 
-    if (send(*sock, sendbuf, msg_length+1, 0) < 0)
+    if (msg_length >= MAX_DATA_SIZE) {
+        printf("The message is too long");
+        return;
+    }
+
+    if (send(*sock, sendbuf, msg_length + 1, 0) < 0)
     {
         perror("Send failed");
     }
+
 }
 
-void recv_message(int *sock)
+int recv_message(int *sock)
 {
     char recvbuf[MAX_DATA_SIZE];
     int msg_length;
@@ -41,20 +46,25 @@ void recv_message(int *sock)
     {
         perror("recv");
     }
-    recvbuf[msg_length] = '\0';
-    printf("Received: %s\n", recvbuf);
+
+    if (recvbuf[0] == '\0') return 0;
+
+    printf("Received: %s", recvbuf);
+    return 1;
 }
 
 
 int main(int argc, char *argv[])
 {
-    if (argc != 2)
+    if (argc != 3)
     {
-        printf("Usage: %s hostname", basename(argv[0]));
+        printf("Usage: %s hostname port", basename(argv[0]));
         exit(-1);
     }
 
     char* hostname = argv[1];
+    char* port = argv[2];
+    int port_int = atoi(port);
 
     int sock;
 
@@ -69,7 +79,7 @@ int main(int argc, char *argv[])
     }
 
     addr.sin_family = AF_INET;
-    addr.sin_port = htons(PORT);
+    addr.sin_port = htons(port_int);
 
     // hostname в структуру in_addr
     if (inet_pton(AF_INET, hostname, &addr.sin_addr) <= 0) {
@@ -104,7 +114,10 @@ int main(int argc, char *argv[])
 
         // Проверяем сообщение от сервера
         if (FD_ISSET(sock, &temp_fds)) {
-            recv_message(&sock);
+            if (! recv_message(&sock)) {
+                close(sock);
+                break;
+            }
         }
 
         // Проверяем поток stdin
@@ -116,3 +129,4 @@ int main(int argc, char *argv[])
 
     return 0;
 }
+

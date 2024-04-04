@@ -11,7 +11,6 @@
 #include <arpa/inet.h>
 
 #define MAX_DATA_SIZE 80
-#define PORT 8080
 
 // get sockaddr, IPv4 or IPv6:
 void *get_in_addr(struct sockaddr *sa)
@@ -28,11 +27,16 @@ void send_message(int *sock)
     char sendbuf[MAX_DATA_SIZE];
 
     memset(sendbuf, 0, MAX_DATA_SIZE);
-    // Обработка длины сообщения
     fgets(sendbuf, MAX_DATA_SIZE, stdin);
 
     int msg_length = strlen(sendbuf);
     sendbuf[msg_length] = '\0';
+    msg_length += 1;
+
+    if (msg_length >= MAX_DATA_SIZE) {
+        printf("The message is too long\n");
+        return;
+    }
 
     if (send(*sock, sendbuf, msg_length+1, 0) < 0)
     {
@@ -41,7 +45,7 @@ void send_message(int *sock)
 
 }
 
-void recv_message(int *sock)
+int recv_message(int *sock)
 {
     char recvbuf[MAX_DATA_SIZE];
     int msg_length;
@@ -51,13 +55,26 @@ void recv_message(int *sock)
     {
         perror("recv");
     }
-    recvbuf[msg_length] = '\0';
-    printf("Received: %s\n", recvbuf);
+
+    if (recvbuf[0] == '\0')  return 0;
+
+    printf("Received: %s", recvbuf);
+    return 1;
 }
 
 
-int main()
+int main(int argc, char *argv[])
 {
+    if (argc != 2)
+    {
+        printf("Usage: %s port", basename(argv[0]));
+        exit(-1);
+    }
+
+    char* port = argv[1];
+    int port_int = atoi(port);
+
+
     struct sockaddr_in addr;
     int yes = 1;
 
@@ -69,7 +86,7 @@ int main()
     }
 
     addr.sin_family = AF_INET;
-    addr.sin_port = htons(PORT);
+    addr.sin_port = htons(port_int);
     addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
     setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int));
@@ -131,7 +148,10 @@ int main()
 
         // Проверяем сообщение от клиента
         if (FD_ISSET(client_sock, &temp_fds)) {
-            recv_message(&client_sock);
+            if (! recv_message(&client_sock)) {
+                close(client_sock);
+                break;
+            }
         }
 
         // Проверяем поток stdin
