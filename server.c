@@ -17,7 +17,7 @@
 #define KEY_SIZE 16
 
 int crypto = 0;
-unsigned char *session_key = "lalalalala";
+unsigned char *session_key;
 size_t session_key_len;
 
 void generate_session_key(int *sock) {
