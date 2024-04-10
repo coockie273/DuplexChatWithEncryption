@@ -17,7 +17,7 @@
 #define KEY_SIZE 16
 
 int crypto = 0;
-unsigned char *session_key = "lalalalala";
+unsigned char *session_key;
 size_t session_key_len;
 
 
@@ -38,6 +38,8 @@ void generate_session_key(int *sock) {
         exit(-1);
     }
     printf("Ok3\n");
+
+    /* Check parameters */
     if(1 != DH_check(privkey, &codes)) {
         fprintf(stderr, "Error for DH check\n");
         exit(-1);
@@ -47,8 +49,6 @@ void generate_session_key(int *sock) {
 
     if(codes != 0)
     {
-        /* Problems have been found with the generated parameters */
-        /* Handle these here - we'll just abort for this example */
         printf("DH_check failed\n");
         exit(-1);
     }
@@ -59,11 +59,9 @@ void generate_session_key(int *sock) {
         exit(-1);
     }
 
-    /* Send the public key to the peer.
-    * How this occurs will be specific to your situation (see main text below) */
-
     char* pub_key = DH_get0_pub_key(privkey);
 
+    /* Sharing public keys */
     send(*sock, pub_key, sizeof(pub_key), 0);
     printf("Public key sent to server\n");
 
@@ -86,13 +84,10 @@ void generate_session_key(int *sock) {
         exit(-1);
     }
 
-    /* Do something with the shared secret */
-    /* Note secret_size may be less than DH_size(privkey) */
     printf("The shared secret is:\n");
     BIO_dump_fp(stdout, session_key, session_key_len);
 
     /* Clean up */
-    OPENSSL_free(session_key_len);
     BN_free(pub_key);
     DH_free(privkey);
 
@@ -124,8 +119,10 @@ void send_message(int *sock)
     int msg_length = strlen(sendbuf);
     sendbuf[msg_length] = '\0';
 
+    // Prohibition on sending empty messages
     if (strcmp(sendbuf, "\n") == 0) return;
 
+    // Encrypting message in crypto mode
     if (crypto) {
         char sendbuf_enc[MAX_DATA_SIZE];
         memset(sendbuf_enc, 0, MAX_DATA_SIZE);
@@ -145,6 +142,7 @@ void send_message(int *sock)
 
 }
 
+
 int recv_message(int *sock)
 {
     char recvbuf[MAX_DATA_SIZE];
@@ -152,13 +150,16 @@ int recv_message(int *sock)
 
     memset(recvbuf, 0, MAX_DATA_SIZE);
 
+    // Receive message
     if (msg_length = recv(*sock, recvbuf, MAX_DATA_SIZE, 0) == -1)
     {
         perror("recv");
     }
 
+    // Close connection when an empty message is received
     if (recvbuf[0] == '\0') return 0;
 
+    // Decrypt message in crypto mode
     if (crypto) {
         char recvbuf_enc[MAX_DATA_SIZE];
         memset(recvbuf_enc, 0, MAX_DATA_SIZE);
@@ -207,18 +208,19 @@ int main(int argc, char *argv[])
 
     }
 
-    // get info about encryption from client
+    // get info about encryption from server
     if (recv(sock, &crypto, MAX_DATA_SIZE-1, 0) == -1)
     {
         perror("recv");
     }
 
     crypto = ntohl(crypto);
+    
     // Generation key for crypto mode
-    //if (crypto) {
-    //   generate_session_key(&sock);
-    //   printf("Ключ шифрования был успешно сгенерирован\n");
-    //}
+    if (crypto) {
+       generate_session_key(&sock);
+       printf("The encryption key has been successfully generated\n");
+    }
 
     fd_set read_fds;
 
@@ -231,14 +233,14 @@ int main(int argc, char *argv[])
     while (1) {
         fd_set temp_fds = read_fds;
 
-        // Бесконечно ждем активности
+        // Waiting for actions
         int activity = select(max_fd + 1, &temp_fds, NULL, NULL, NULL);
         if (activity < 0) {
             perror("Error in select");
             exit(EXIT_FAILURE);
         }
 
-        // Проверяем сообщение от сервера
+        // Check messages from server
         if (FD_ISSET(sock, &temp_fds)) {
             if (! recv_message(&sock)) {
                 close(sock);
@@ -246,7 +248,7 @@ int main(int argc, char *argv[])
             }
         }
 
-        // Проверяем поток stdin
+        // Check input from stdin
         if (FD_ISSET(STDIN_FILENO, &temp_fds)) {
             send_message(&sock);
         }
