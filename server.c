@@ -127,14 +127,16 @@ void send_message(int *sock)
     int msg_length = strlen(sendbuf);
     sendbuf[msg_length] = '\0';
 
+    // Prohibition on sending empty messages
     if (strcmp(sendbuf, "\n") == 0) return;
 
+    // Encrypting message in crypto mode
     if (crypto) {
         char sendbuf_enc[MAX_DATA_SIZE];
         memset(sendbuf_enc, 0, MAX_DATA_SIZE);
         bf_crypt(sendbuf, sendbuf_enc, BF_DECRYPT);
-
-        if (send(*sock, sendbuf_enc, MAX_DATA_SIZE, 0) < 0)
+        int len;
+        if (len = send(*sock, sendbuf_enc, MAX_DATA_SIZE, 0) < 0)
         {
             perror("Send failed");
         }
@@ -148,6 +150,7 @@ void send_message(int *sock)
 
 }
 
+
 int recv_message(int *sock)
 {
     char recvbuf[MAX_DATA_SIZE];
@@ -155,17 +158,20 @@ int recv_message(int *sock)
 
     memset(recvbuf, 0, MAX_DATA_SIZE);
 
+    // Receive message
     if (msg_length = recv(*sock, recvbuf, MAX_DATA_SIZE, 0) == -1)
     {
         perror("recv");
     }
-    if (recvbuf[0] == '\0')  return 0;
 
+    // Close connection when an empty message is received
+    if (recvbuf[0] == '\0') return 0;
+
+    // Decrypt message in crypto mode
     if (crypto) {
         char recvbuf_enc[MAX_DATA_SIZE];
         memset(recvbuf_enc, 0, MAX_DATA_SIZE);
         bf_crypt(recvbuf, recvbuf_enc, BF_ENCRYPT);
-
         printf("Received: %s", recvbuf_enc);
         return 1;
     }
@@ -173,7 +179,6 @@ int recv_message(int *sock)
     printf("Received: %s", recvbuf);
     return 1;
 }
-
 
 int main(int argc, char *argv[])
 {
@@ -227,7 +232,7 @@ int main(int argc, char *argv[])
         struct sockaddr_storage remoteaddr;
         socklen_t addrlen = sizeof(remoteaddr);
 
-        // waiting and accepting client
+        // Waiting and accepting client
         client_sock = accept(listener, (struct sockaddr *)&remoteaddr, &addrlen);
         if (client_sock == -1)
         {
@@ -247,19 +252,18 @@ int main(int argc, char *argv[])
         // Send info about encryption to client
         int crypto_info = htonl(crypto);
     	if (send(client_sock, &crypto_info, sizeof(crypto_info), 0) < 0) {
-            perror("Ошибка при отправке данных");
+            perror("Error in sending data to client");
             exit(-1);
         }
 
         break;
     }
-    //printf("%d\n",crypto);
+    
     // Generetion key for crypto mode
-    //if (crypto) {
-    //    printf("Here\n");
-    //	generate_session_key(&client_sock);
-    //	printf("Ключ шифрования был успешно сгенерирован\n");
-    //}
+    if (crypto) {
+    	generate_session_key(&client_sock);
+    	printf("Encryption key has been successfully generated\n");
+    }
 
     fd_set read_fds;
 
