@@ -67,11 +67,13 @@ void generate_session_key(int *sock) {
     }
 
     unsigned char server_public_key[1024];
-    int bytes_received = recv(*sock, client_public_key, sizeof(server_public_key), 0);
+    int bytes_received = recv(*sock, server_public_key, sizeof(server_public_key), 0);
     if (bytes_received < 0) {
         fprintf(stderr, "Error receiving server's public key\n");
         exit(-1);
     }
+
+    printf(server_public_key);
 
     const BIGNUM *pub_key_bn;
     DH_get0_key(dh, &pub_key_bn, NULL);
@@ -199,7 +201,6 @@ int main(int argc, char *argv[])
     }
 
     crypto = ntohl(crypto);
-
     // Generation key for crypto mode
     if (crypto) {
        generate_session_key(&sock);

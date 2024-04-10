@@ -15,7 +15,7 @@
 #define MAX_DATA_SIZE 80
 #define KEY_SIZE 16
 
-int crypto = 0;
+char* crypto = 0;
 unsigned char *session_key;
 size_t session_key_len;
 
@@ -38,6 +38,11 @@ void generate_session_key(int *sock) {
 
     if (!(kctx = EVP_PKEY_CTX_new(params, NULL))) {
         fprintf(stderr, "Error in initializing kctx\n");
+        exit(-1);
+    }
+
+    if (1 != EVP_PKEY_derive_init(kctx)) {
+        fprintf(stderr, "Error deriving\n");
         exit(-1);
     }
 
@@ -79,18 +84,16 @@ void generate_session_key(int *sock) {
     printf("Public key sent to client\n");
 
     unsigned char client_public_key[1024];
+
     int bytes_received = recv(*sock, client_public_key, sizeof(client_public_key), 0);
     if (bytes_received < 0) {
         fprintf(stderr, "Error receiving client's public key\n");
         exit(-1);
     }
 
-    if (1 != EVP_PKEY_derive_init(kctx)) {
-        fprintf(stderr, "Error deriving\n");
-        exit(-1);
-    }
+    EVP_PKEY *evp_key = d2i_PUBKEY(NULL, &client_public_key, strlen(client_public_key));
 
-    if (1 != EVP_PKEY_derive_set_peer(kctx, client_public_key)) {
+    if (1 != EVP_PKEY_derive_set_peer(kctx, evp_key)) {
         fprintf(stderr, "Error in settning client public key\n");
         exit(-1);
     }
@@ -100,8 +103,11 @@ void generate_session_key(int *sock) {
         exit(-1);
     }
 
+    printf("Here2\n");
+
     session_key = (unsigned char *)malloc(session_key_len);
 
+    printf("Here3\n");
     if (1 != (EVP_PKEY_derive(kctx, session_key, &session_key_len))) {
         fprintf(stderr, "Error in creating session key\n");
         exit(-1);
@@ -170,9 +176,12 @@ int main(int argc, char *argv[])
 {
 
     char* port = argv[1];
-    crypto = 1;
-    int port_int = atoi(port);
+    char* c = argv[2];
 
+    crypto = atoi(c);
+
+    //printf("%s\n", crypto);
+    int port_int = atoi(port);
 
     struct sockaddr_in addr;
     int yes = 1;
@@ -240,7 +249,7 @@ int main(int argc, char *argv[])
         }
         break;
     }
-
+    //printf(crypto);
     // Generetion key for crypto mode
     if (crypto) {
         generate_session_key(&client_sock);
