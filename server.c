@@ -37,6 +37,8 @@ void generate_session_key(int *sock) {
         exit(-1);
     }
     printf("Ok3\n");
+
+    /* Check parameters */
     if(1 != DH_check(privkey, &codes)) {
         fprintf(stderr, "Error for DH check\n");
         exit(-1);
@@ -46,8 +48,6 @@ void generate_session_key(int *sock) {
 
     if(codes != 0)
     {
-        /* Problems have been found with the generated parameters */
-        /* Handle these here - we'll just abort for this example */
         printf("DH_check failed\n");
         exit(-1);
     }
@@ -58,13 +58,11 @@ void generate_session_key(int *sock) {
         exit(-1);
     }
 
-    /* Send the public key to the peer.
-    * How this occurs will be specific to your situation (see main text below) */
-
     char* pub_key = DH_get0_pub_key(privkey);
 
+    /* Sharing public keys */
     send(*sock, pub_key, sizeof(pub_key), 0);
-    printf("Public key sent to server\n");
+    printf("Public key sent to client\n");
 
     int bytes_received = recv(*sock, pub_key, sizeof(pub_key), 0);
     if (bytes_received < 0) {
@@ -85,16 +83,12 @@ void generate_session_key(int *sock) {
         exit(-1);
     }
 
-    /* Do something with the shared secret */
-    /* Note secret_size may be less than DH_size(privkey) */
     printf("The shared secret is:\n");
     BIO_dump_fp(stdout, session_key, session_key_len);
 
     /* Clean up */
-    OPENSSL_free(session_key_len);
     BN_free(pub_key);
     DH_free(privkey);
-
 }
 
 // get sockaddr, IPv4 or IPv6:
