@@ -22,62 +22,52 @@ size_t session_key_len;
 
 void generate_session_key(int *sock) {
 
-    EVP_PKEY_CTX *kctx = NULL;
-    EVP_PKEY *dhkey = NULL;
-    EVP_PKEY *params = NULL;
-    BIO* fp = NULL;
+    DH *privkey;
+    int codes;
+    int secret_size;
 
-    if (!(params = EVP_PKEY_new())) {
+    /* Generate the parameters to be used */
+    if(NULL == (privkey = DH_new())) {
+        fprintf(stderr, "Error for initialize DH\n");
+        exit(-1);
+    }
+    if(1 != DH_generate_parameters_ex(privkey, 2048, DH_GENERATOR_2, NULL)) {
         fprintf(stderr, "Error for params creating\n");
         exit(-1);
     }
 
-    if (1 != EVP_PKEY_assign(params, EVP_PKEY_DHX, DH_get_2048_256())) {
-        fprintf(stderr, "Error in assign\n");
+    if(1 != DH_check(privkey, &codes)) {
+        fprintf(stderr, "Error for DH check\n");
         exit(-1);
     }
 
-    if (!(kctx = EVP_PKEY_CTX_new(params, NULL))) {
-        fprintf(stderr, "Error in initializing kctx\n");
+    if(codes != 0)
+    {
+        /* Problems have been found with the generated parameters */
+        /* Handle these here - we'll just abort for this example */
+        printf("DH_check failed\n");
         exit(-1);
     }
 
-    if (1 != EVP_PKEY_keygen_init(kctx)) {
-        fprintf(stderr, "Error in key generation\n");
+    /* Generate the public and private key pair */
+    if(1 != DH_generate_key(privkey)) {
+        fprintf(stderr, "Error for generating key\n");
         exit(-1);
     }
 
-    if (1 != EVP_PKEY_keygen(kctx, &dhkey)) {
-        fprintf(stderr, "Error in key generation\n");
-        exit(-1);
-    }
-
-    fp = BIO_new_fp(stdout, BIO_NOCLOSE);
-    if (fp == NULL) {
-        fprintf(stderr, "Error creating BIO\n");
-        exit(-1);
-    }
-
-    EVP_PKEY_print_private(fp, dhkey, 0, NULL);
-
-    DH *dh = EVP_PKEY_get1_DH(dhkey);
-    if (dh == NULL) {
-        fprintf(stderr, "Error getting DH structure\n");
-        exit(-1);
-    }
+    /* Send the public key to the peer.
+    * How this occurs will be specific to your situation (see main text below) */
 
     unsigned char server_public_key[1024];
-    int bytes_received = recv(*sock, server_public_key, sizeof(server_public_key), 0);
+    int bytes_received = recv(*sock, client_public_key, sizeof(server_public_key), 0);
     if (bytes_received < 0) {
         fprintf(stderr, "Error receiving server's public key\n");
         exit(-1);
     }
 
-    printf(server_public_key);
-
     const BIGNUM *pub_key_bn;
-    DH_get0_key(dh, &pub_key_bn, NULL);
-    unsigned char *pub_key_bytes = (unsigned char *)malloc(DH_size(dh));
+    DH_get0_key(privkey, &pub_key_bn, NULL);
+    unsigned char *pub_key_bytes = (unsigned char *)malloc(DH_size(privkey));
     if (pub_key_bytes == NULL) {
         fprintf(stderr, "Error allocating memory\n");
         exit(-1);
@@ -86,34 +76,37 @@ void generate_session_key(int *sock) {
     int pub_key_len = BN_bn2bin(pub_key_bn, pub_key_bytes);
 
     send(*sock, pub_key_bytes, pub_key_len, 0);
-    printf("Public key server to client\n");
+    printf("Public key sent to server\n");
 
-    if (1 != EVP_PKEY_derive_init(kctx)) {
-        fprintf(stderr, "Error deriving\n");
+
+    /* Receive the public key from the peer. In this example we're just hard coding a value */
+    BIGNUM *pubkey = NULL;
+    if(0 == (BN_dec2bn(&pubkey, server_public_key))) {
+        fprintf(stderr, "Error for decode public client key creating\n");
         exit(-1);
     }
 
-    if (1 != EVP_PKEY_derive_set_peer(kctx, server_public_key)) {
-        fprintf(stderr, "Error in settning client public key\n");
+    /* Compute the shared secret */
+
+    if(NULL == (session_key = OPENSSL_malloc(sizeof(unsigned char) * (DH_size(privkey))))) {
+        fprintf(stderr, "Memory error\n");
         exit(-1);
     }
 
-    if (1 != EVP_PKEY_derive(kctx, NULL, &session_key_len)) {
-        fprintf(stderr, "Error deriving\n");
+    if(0 > (session_key_len = DH_compute_key(session_key, pubkey, privkey))) {
+        fprintf(stderr, "Error in computing secret\n");
         exit(-1);
     }
 
-    session_key = (unsigned char *)malloc(session_key_len);
+    /* Do something with the shared secret */
+    /* Note secret_size may be less than DH_size(privkey) */
+    printf("The shared secret is:\n");
+    BIO_dump_fp(stdout, session_key, session_key_len);
 
-    if (1 != (EVP_PKEY_derive(kctx, session_key, &session_key_len))) {
-        fprintf(stderr, "Error in creating session key\n");
-        exit(-1);
-    }
-
-    EVP_PKEY_free(params);
-    EVP_PKEY_CTX_free(kctx);
-    EVP_PKEY_free(dhkey);
-    BIO_free(fp);
+    /* Clean up */
+    OPENSSL_free(session_key_len);
+    BN_free(pubkey);
+    DH_free(privkey);
 
 }
 
