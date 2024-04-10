@@ -23,25 +23,27 @@ size_t session_key_len;
 
 void generate_session_key(int *sock) {
 
-    printf("Hey\n");
     DH *privkey;
     int codes;
-    int secret_size;
 
+    printf("Ok\n");
     /* Generate the parameters to be used */
     if(NULL == (privkey = DH_new())) {
         fprintf(stderr, "Error for initialize DH\n");
         exit(-1);
     }
-    if(1 != DH_generate_parameters_ex(privkey, 2048, DH_GENERATOR_2, NULL)) {
+    printf("Ok2\n");
+    if(1 != DH_generate_parameters_ex(privkey, 1024, DH_GENERATOR_2, 0)) {
         fprintf(stderr, "Error for params creating\n");
         exit(-1);
     }
-
+    printf("Ok3\n");
     if(1 != DH_check(privkey, &codes)) {
         fprintf(stderr, "Error for DH check\n");
         exit(-1);
     }
+
+    printf("123\n");
 
     if(codes != 0)
     {
@@ -60,35 +62,17 @@ void generate_session_key(int *sock) {
     /* Send the public key to the peer.
     * How this occurs will be specific to your situation (see main text below) */
 
-    printf("Wait for key\n");
-    unsigned char server_public_key[1024];
-    int bytes_received = recv(*sock, server_public_key, sizeof(server_public_key), 0);
+    char* pub_key = DH_get0_pub_key(privkey);
+
+    send(*sock, pub_key, sizeof(pub_key), 0);
+    printf("Public key sent to server\n");
+
+    int bytes_received = recv(*sock, pub_key, sizeof(pub_key), 0);
     if (bytes_received < 0) {
         fprintf(stderr, "Error receiving server's public key\n");
         exit(-1);
     }
 
-    printf("ZAEBALI DIFFIE HELLMANI PIDORI\n");
-    const BIGNUM *pub_key_bn;
-    DH_get0_key(privkey, &pub_key_bn, NULL);
-    unsigned char *pub_key_bytes = (unsigned char *)malloc(DH_size(privkey));
-    if (pub_key_bytes == NULL) {
-        fprintf(stderr, "Error allocating memory\n");
-        exit(-1);
-    }
-
-    int pub_key_len = BN_bn2bin(pub_key_bn, pub_key_bytes);
-
-    send(*sock, pub_key_bytes, pub_key_len, 0);
-    printf("Public key sent to server\n");
-
-
-    /* Receive the public key from the peer. In this example we're just hard coding a value */
-    BIGNUM *pubkey = NULL;
-    if(0 == (BN_dec2bn(&pubkey, server_public_key))) {
-        fprintf(stderr, "Error for decode public client key creating\n");
-        exit(-1);
-    }
 
     /* Compute the shared secret */
 
@@ -97,7 +81,7 @@ void generate_session_key(int *sock) {
         exit(-1);
     }
 
-    if(0 > (session_key_len = DH_compute_key(session_key, pubkey, privkey))) {
+    if(0 > (session_key_len = DH_compute_key(session_key, pub_key, privkey))) {
         fprintf(stderr, "Error in computing secret\n");
         exit(-1);
     }
@@ -109,7 +93,7 @@ void generate_session_key(int *sock) {
 
     /* Clean up */
     OPENSSL_free(session_key_len);
-    BN_free(pubkey);
+    BN_free(pub_key);
     DH_free(privkey);
 
 }
