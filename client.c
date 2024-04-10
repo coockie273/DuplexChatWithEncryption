@@ -20,114 +20,99 @@ unsigned char *session_key;
 size_t session_key_len;
 
 
-void print_secret_key(const unsigned char *key, size_t key_len) {
-    printf("Secret key (hex): ");
-    for (size_t i = 0; i < key_len; ++i) {
-        printf("%02x", key[i]);
-    }
-    printf("\n");
-}
-
 void generate_session_key(int *sock) {
 
-    // Creating dh context with hardcoded p and g
-    EVP_PKEY_CTX *dh_params_ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_DH, NULL);
-    if (!dh_params_ctx) {
-        perror("Ошибка при создании контекста параметров домена");
-        exit(EXIT_FAILURE);
-    }
-
-    int g = 7;
-    int p = 103;
-
-    if (EVP_PKEY_CTX_set_dh_paramgen_prime_len(dh_params_ctx, 1024) <= 0) {
-        perror("Ошибка при установке параметров домена");
-        exit(EXIT_FAILURE);
-    }
-
+    EVP_PKEY_CTX *kctx = NULL;
+    EVP_PKEY *dhkey = NULL;
     EVP_PKEY *params = NULL;
-    if (EVP_PKEY_paramgen(dh_params_ctx, &params) <= 0) {
-        perror("Ошибка при генерации параметров домена");
-        exit(EXIT_FAILURE);
+    BIO* fp = NULL;
+
+    if (!(params = EVP_PKEY_new())) {
+        fprintf(stderr, "Error for params creating\n");
+        exit(-1);
     }
 
-    EVP_PKEY_CTX *keygen_ctx = EVP_PKEY_CTX_new(params, NULL);
-    if (!keygen_ctx) {
-        perror("Ошибка при создании контекста ключевой пары");
-        exit(EXIT_FAILURE);
+    if (1 != EVP_PKEY_assign(params, EVP_PKEY_DHX, DH_get_2048_256())) {
+        fprintf(stderr, "Error in assign\n");
+        exit(-1);
     }
 
-    EVP_PKEY *keypair = NULL;
-    if (EVP_PKEY_keygen_init(keygen_ctx) <= 0 ||
-        EVP_PKEY_keygen(keygen_ctx, &keypair) <= 0) {
-        perror("Ошибка при генерации ключевой пары");
-        exit(EXIT_FAILURE);
+    if (!(kctx = EVP_PKEY_CTX_new(params, NULL))) {
+        fprintf(stderr, "Error in initializing kctx\n");
+        exit(-1);
     }
 
-    // Get server public key
-    size_t other_pub_key_len = 0;
-    if (recv(*sock, &other_pub_key_len, sizeof(size_t), 0) < 0) {
-        perror("Ошибка при получении длины публичного ключа другой стороны");
-        exit(EXIT_FAILURE);
-    }
-    unsigned char *other_pub_key_data = malloc(other_pub_key_len);
-    if (!other_pub_key_data ||
-        recv(*sock, other_pub_key_data, other_pub_key_len, 0) < 0) {
-        perror("Ошибка при получении публичного ключа другой стороны");
-        exit(EXIT_FAILURE);
+    if (1 != EVP_PKEY_keygen_init(kctx)) {
+        fprintf(stderr, "Error in key generation\n");
+        exit(-1);
     }
 
-    EVP_PKEY *other_pub_key = EVP_PKEY_new_raw_public_key(EVP_PKEY_DH, NULL,
-                                                           other_pub_key_data,
-                                                           other_pub_key_len);
-    if (!other_pub_key) {
-        perror("Ошибка при создании публичного ключа другой стороны");
-        exit(EXIT_FAILURE);
+    if (1 != EVP_PKEY_keygen(kctx, &dhkey)) {
+        fprintf(stderr, "Error in key generation\n");
+        exit(-1);
     }
 
-    // Generating and sending public client key
-    unsigned char *pub_key_data = NULL;
-    size_t pub_key_len = 0;
-    if (EVP_PKEY_get_raw_public_key(keypair, NULL, &pub_key_len) <= 0 ||
-        !(pub_key_data = malloc(pub_key_len)) ||
-        EVP_PKEY_get_raw_public_key(keypair, pub_key_data, &pub_key_len) <= 0 ||
-        send(*sock, &pub_key_len, sizeof(size_t), 0) < 0 ||
-        send(*sock, pub_key_data, pub_key_len, 0) < 0) {
-        perror("Ошибка при отправке публичного ключа");
-        exit(EXIT_FAILURE);
-    }
-    free(pub_key_data);
-
-    EVP_PKEY_CTX *derive_ctx = EVP_PKEY_CTX_new(keypair, NULL);
-    if (!derive_ctx) {
-        perror("Ошибка при создании контекста для вычисления общего секрета");
-        exit(EXIT_FAILURE);
+    fp = BIO_new_fp(stdout, BIO_NOCLOSE);
+    if (fp == NULL) {
+        fprintf(stderr, "Error creating BIO\n");
+        exit(-1);
     }
 
-    if (EVP_PKEY_derive_init(derive_ctx) <= 0 ||
-        EVP_PKEY_derive_set_peer(derive_ctx, other_pub_key) <= 0 ||
-        EVP_PKEY_derive(derive_ctx, NULL, &session_key_len) <= 0) {
-        perror("Ошибка при вычислении общего секрета");
-        exit(EXIT_FAILURE);
+    EVP_PKEY_print_private(fp, dhkey, 0, NULL);
+
+    DH *dh = EVP_PKEY_get1_DH(dhkey);
+    if (dh == NULL) {
+        fprintf(stderr, "Error getting DH structure\n");
+        exit(-1);
     }
 
-    // Generate session key
-    session_key = malloc(session_key_len);
-    if (! session_key ||
-        EVP_PKEY_derive(derive_ctx, session_key, &session_key_len) <= 0) {
-        perror("Ошибка при вычислении общего секрета");
-        exit(EXIT_FAILURE);
+    unsigned char server_public_key[1024];
+    int bytes_received = recv(*sock, client_public_key, sizeof(server_public_key), 0);
+    if (bytes_received < 0) {
+        fprintf(stderr, "Error receiving server's public key\n");
+        exit(-1);
     }
 
-    print_secret_key(session_key, session_key_len);
+    const BIGNUM *pub_key_bn;
+    DH_get0_key(dh, &pub_key_bn, NULL);
+    unsigned char *pub_key_bytes = (unsigned char *)malloc(DH_size(dh));
+    if (pub_key_bytes == NULL) {
+        fprintf(stderr, "Error allocating memory\n");
+        exit(-1);
+    }
 
-    // free memory
+    int pub_key_len = BN_bn2bin(pub_key_bn, pub_key_bytes);
+
+    send(*sock, pub_key_bytes, pub_key_len, 0);
+    printf("Public key server to client\n");
+
+    if (1 != EVP_PKEY_derive_init(kctx)) {
+        fprintf(stderr, "Error deriving\n");
+        exit(-1);
+    }
+
+    if (1 != EVP_PKEY_derive_set_peer(kctx, server_public_key)) {
+        fprintf(stderr, "Error in settning client public key\n");
+        exit(-1);
+    }
+
+    if (1 != EVP_PKEY_derive(kctx, NULL, &session_key_len)) {
+        fprintf(stderr, "Error deriving\n");
+        exit(-1);
+    }
+
+    session_key = (unsigned char *)malloc(session_key_len);
+
+    if (1 != (EVP_PKEY_derive(kctx, session_key, &session_key_len))) {
+        fprintf(stderr, "Error in creating session key\n");
+        exit(-1);
+    }
+
     EVP_PKEY_free(params);
-    EVP_PKEY_free(keypair);
-    EVP_PKEY_free(other_pub_key);
-    EVP_PKEY_CTX_free(dh_params_ctx);
-    EVP_PKEY_CTX_free(keygen_ctx);
-    EVP_PKEY_CTX_free(derive_ctx);
+    EVP_PKEY_CTX_free(kctx);
+    EVP_PKEY_free(dhkey);
+    BIO_free(fp);
+
 }
 
 void send_message(int *sock)
