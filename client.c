@@ -11,17 +11,19 @@
 #include <arpa/inet.h>
 #include <openssl/dh.h>
 #include <openssl/evp.h>
+#include <openssl/blowfish.h>
 
 #define MAX_DATA_SIZE 80
 #define KEY_SIZE 16
 
 int crypto = 0;
-unsigned char *session_key;
+unsigned char *session_key = "lalalalala";
 size_t session_key_len;
 
 
 void generate_session_key(int *sock) {
 
+    printf("Hey\n");
     DH *privkey;
     int codes;
     int secret_size;
@@ -58,13 +60,15 @@ void generate_session_key(int *sock) {
     /* Send the public key to the peer.
     * How this occurs will be specific to your situation (see main text below) */
 
+    printf("Wait for key\n");
     unsigned char server_public_key[1024];
-    int bytes_received = recv(*sock, client_public_key, sizeof(server_public_key), 0);
+    int bytes_received = recv(*sock, server_public_key, sizeof(server_public_key), 0);
     if (bytes_received < 0) {
         fprintf(stderr, "Error receiving server's public key\n");
         exit(-1);
     }
 
+    printf("ZAEBALI DIFFIE HELLMANI PIDORI\n");
     const BIGNUM *pub_key_bn;
     DH_get0_key(privkey, &pub_key_bn, NULL);
     unsigned char *pub_key_bytes = (unsigned char *)malloc(DH_size(privkey));
@@ -110,19 +114,43 @@ void generate_session_key(int *sock) {
 
 }
 
+void bf_crypt(const char * message, const char* enc_message, int enc) {
+
+    BF_KEY bfkey;
+    BF_set_key(&bfkey, 16, "1234567890123456");
+
+    for (int i = 0; i < MAX_DATA_SIZE / 8; i++)
+    {
+        const char *current_block = message + i * 8;
+        char *dest_block = enc_message + i * 8;
+        BF_ecb_encrypt(current_block, dest_block, &bfkey, enc);
+
+    }
+
+}
+
 void send_message(int *sock)
 {
     char sendbuf[MAX_DATA_SIZE];
 
     memset(sendbuf, 0, MAX_DATA_SIZE);
-    //Обработка длины сообщения
+
     fgets(sendbuf, MAX_DATA_SIZE, stdin);
 
     int msg_length = strlen(sendbuf);
     sendbuf[msg_length] = '\0';
 
-    if (msg_length >= MAX_DATA_SIZE) {
-        printf("The message is too long");
+    if (strcmp(sendbuf, "\n") == 0) return;
+
+    if (crypto) {
+        char sendbuf_enc[MAX_DATA_SIZE];
+        memset(sendbuf_enc, 0, MAX_DATA_SIZE);
+        bf_crypt(sendbuf, sendbuf_enc, BF_DECRYPT);
+        int len;
+        if (len = send(*sock, sendbuf_enc, MAX_DATA_SIZE, 0) < 0)
+        {
+            perror("Send failed");
+        }
         return;
     }
 
@@ -139,17 +167,25 @@ int recv_message(int *sock)
     int msg_length;
 
     memset(recvbuf, 0, MAX_DATA_SIZE);
-    if (msg_length = recv(*sock, recvbuf, MAX_DATA_SIZE-1, 0) == -1)
+
+    if (msg_length = recv(*sock, recvbuf, MAX_DATA_SIZE, 0) == -1)
     {
         perror("recv");
     }
 
     if (recvbuf[0] == '\0') return 0;
 
+    if (crypto) {
+        char recvbuf_enc[MAX_DATA_SIZE];
+        memset(recvbuf_enc, 0, MAX_DATA_SIZE);
+        bf_crypt(recvbuf, recvbuf_enc, BF_ENCRYPT);
+        printf("Received: %s", recvbuf_enc);
+        return 1;
+    }
+
     printf("Received: %s", recvbuf);
     return 1;
 }
-
 
 int main(int argc, char *argv[])
 {
@@ -195,10 +231,10 @@ int main(int argc, char *argv[])
 
     crypto = ntohl(crypto);
     // Generation key for crypto mode
-    if (crypto) {
-       generate_session_key(&sock);
-       printf("Ключ шифрования был успешно сгенерирован\n");
-    }
+    //if (crypto) {
+    //   generate_session_key(&sock);
+    //   printf("Ключ шифрования был успешно сгенерирован\n");
+    //}
 
     fd_set read_fds;
 

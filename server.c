@@ -11,34 +11,38 @@
 #include <arpa/inet.h>
 #include <openssl/dh.h>
 #include <openssl/evp.h>
+#include <openssl/blowfish.h>
 
 #define MAX_DATA_SIZE 80
 #define KEY_SIZE 16
 
-char* crypto = 0;
-unsigned char *session_key;
+int crypto = 0;
+unsigned char *session_key = "lalalalala";
 size_t session_key_len;
 
 void generate_session_key(int *sock) {
 
     DH *privkey;
     int codes;
-    int secret_size;
 
+    printf("Ok\n");
     /* Generate the parameters to be used */
     if(NULL == (privkey = DH_new())) {
         fprintf(stderr, "Error for initialize DH\n");
         exit(-1);
     }
-    if(1 != DH_generate_parameters_ex(privkey, 2048, DH_GENERATOR_2, NULL)) {
+    printf("Ok2\n");
+    if(1 != DH_generate_parameters_ex(privkey, 1024, DH_GENERATOR_2, 0)) {
         fprintf(stderr, "Error for params creating\n");
         exit(-1);
     }
-
+    printf("Ok3\n");
     if(1 != DH_check(privkey, &codes)) {
         fprintf(stderr, "Error for DH check\n");
         exit(-1);
     }
+
+    printf("123\n");
 
     if(codes != 0)
     {
@@ -57,33 +61,17 @@ void generate_session_key(int *sock) {
     /* Send the public key to the peer.
     * How this occurs will be specific to your situation (see main text below) */
 
-    const BIGNUM *pub_key_bn;
-    DH_get0_key(privkey, &pub_key_bn, NULL);
-    unsigned char *pub_key_bytes = (unsigned char *)malloc(DH_size(privkey));
-    if (pub_key_bytes == NULL) {
-        fprintf(stderr, "Error allocating memory\n");
-        exit(-1);
-    }
+    char* pub_key = DH_get0_pub_key(privkey);
 
-    int pub_key_len = BN_bn2bin(pub_key_bn, pub_key_bytes);
-
-    send(*sock, pub_key_bytes, pub_key_len, 0);
+    send(*sock, pub_key, sizeof(pub_key), 0);
     printf("Public key sent to server\n");
 
-    unsigned char client_public_key[1024];
-    int bytes_received = recv(*sock, client_public_key, sizeof(client_public_key), 0);
+    int bytes_received = recv(*sock, pub_key, sizeof(pub_key), 0);
     if (bytes_received < 0) {
         fprintf(stderr, "Error receiving server's public key\n");
         exit(-1);
     }
 
-
-    /* Receive the public key from the peer. In this example we're just hard coding a value */
-    BIGNUM *pubkey = NULL;
-    if(0 == (BN_dec2bn(&pubkey, client_public_key))) {
-        fprintf(stderr, "Error for decode public client key creating\n");
-        exit(-1);
-    }
 
     /* Compute the shared secret */
 
@@ -92,7 +80,7 @@ void generate_session_key(int *sock) {
         exit(-1);
     }
 
-    if(0 > (session_key_len = DH_compute_key(session_key, pubkey, privkey))) {
+    if(0 > (session_key_len = DH_compute_key(session_key, pub_key, privkey))) {
         fprintf(stderr, "Error in computing secret\n");
         exit(-1);
     }
@@ -104,7 +92,7 @@ void generate_session_key(int *sock) {
 
     /* Clean up */
     OPENSSL_free(session_key_len);
-    BN_free(pubkey);
+    BN_free(pub_key);
     DH_free(privkey);
 
 }
@@ -119,24 +107,47 @@ void *get_in_addr(struct sockaddr *sa)
     return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
+void bf_crypt(const char * message, const char* enc_message, int enc) {
+
+    BF_KEY bfkey;
+    BF_set_key(&bfkey, 16, "1234567890123456");
+
+    for (int i = 0; i < MAX_DATA_SIZE / 8; i++)
+    {
+        const char *current_block = message + i * 8;
+        char *dest_block = enc_message + i * 8;
+        BF_ecb_encrypt(current_block, dest_block, &bfkey, enc);
+
+    }
+
+}
+
 void send_message(int *sock)
 {
     char sendbuf[MAX_DATA_SIZE];
 
     memset(sendbuf, 0, MAX_DATA_SIZE);
+
     fgets(sendbuf, MAX_DATA_SIZE, stdin);
 
     int msg_length = strlen(sendbuf);
     sendbuf[msg_length] = '\0';
-    msg_length += 1;
 
-    // Check that message has valid size
-    if (msg_length >= MAX_DATA_SIZE) {
-        printf("The message is too long\n");
+    if (strcmp(sendbuf, "\n") == 0) return;
+
+    if (crypto) {
+        char sendbuf_enc[MAX_DATA_SIZE];
+        memset(sendbuf_enc, 0, MAX_DATA_SIZE);
+        bf_crypt(sendbuf, sendbuf_enc, BF_DECRYPT);
+
+        if (send(*sock, sendbuf_enc, MAX_DATA_SIZE, 0) < 0)
+        {
+            perror("Send failed");
+        }
         return;
     }
 
-    if (send(*sock, sendbuf, msg_length+1, 0) < 0)
+    if (send(*sock, sendbuf, msg_length + 1, 0) < 0)
     {
         perror("Send failed");
     }
@@ -149,12 +160,21 @@ int recv_message(int *sock)
     int msg_length;
 
     memset(recvbuf, 0, MAX_DATA_SIZE);
-    if (msg_length = recv(*sock, recvbuf, MAX_DATA_SIZE-1, 0) == -1)
+
+    if (msg_length = recv(*sock, recvbuf, MAX_DATA_SIZE, 0) == -1)
     {
         perror("recv");
     }
-
     if (recvbuf[0] == '\0')  return 0;
+
+    if (crypto) {
+        char recvbuf_enc[MAX_DATA_SIZE];
+        memset(recvbuf_enc, 0, MAX_DATA_SIZE);
+        bf_crypt(recvbuf, recvbuf_enc, BF_ENCRYPT);
+
+        printf("Received: %s", recvbuf_enc);
+        return 1;
+    }
 
     printf("Received: %s", recvbuf);
     return 1;
@@ -169,7 +189,6 @@ int main(int argc, char *argv[])
 
     crypto = atoi(c);
 
-    //printf("%s\n", crypto);
     int port_int = atoi(port);
 
     struct sockaddr_in addr;
@@ -225,7 +244,8 @@ int main(int argc, char *argv[])
         // Get information about client
         char remoteIP[INET6_ADDRSTRLEN];
         inet_ntop(remoteaddr.ss_family, get_in_addr((struct sockaddr *)&remoteaddr), remoteIP, sizeof(remoteIP));
-        printf("Connection established with %s\n", remoteIP);
+
+	printf("Connection established with %s\n", remoteIP);
 
         //Close listener, work with only one client
         close(listener);
@@ -236,14 +256,16 @@ int main(int argc, char *argv[])
             perror("Ошибка при отправке данных");
             exit(-1);
         }
+
         break;
     }
-    //printf(crypto);
+    //printf("%d\n",crypto);
     // Generetion key for crypto mode
-    if (crypto) {
-        generate_session_key(&client_sock);
-        printf("Ключ шифрования был успешно сгенерирован\n");
-    }
+    //if (crypto) {
+    //    printf("Here\n");
+    //	generate_session_key(&client_sock);
+    //	printf("Ключ шифрования был успешно сгенерирован\n");
+    //}
 
     fd_set read_fds;
 
