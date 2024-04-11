@@ -59,25 +59,26 @@ void generate_session_key(int *sock) {
         exit(-1);
     }
 
-    char* pub_key = BN_bn2hex(DH_get0_pub_key(privkey));
+    char *pub_key = BN_bn2hex(DH_get0_pub_key(privkey));
+    send(*sock, pub_key, strlen(pub_key), 0);
+    free(pub_key);
 
-    /* Sharing public keys */
-    send(*sock, pub_key, sizeof(pub_key), 0);
-
-    int bytes_received = recv(*sock, pub_key, sizeof(pub_key), 0);
+    char server_pub_key[1024];
+    int bytes_received = recv(*sock, server_pub_key, sizeof(server_pub_key), 0);
     if (bytes_received < 0) {
         fprintf(stderr, "Error receiving server's public key\n");
         exit(-1);
     }
 
-    BIGNUM *bn_key = BN_new();
-    BN_hex2bn(&bn_key, pub_key);
+    // Преобразование открытого ключа сервера в BIGNUM
+    BIGNUM *bn_server_pub_key = BN_new();
+    BN_hex2bn(&bn_server_pub_key, server_pub_key);;
 
     /* Compute the shared secret */
 
     session_key = malloc(sizeof(privkey));
 
-    if(0 > (session_key_len = DH_compute_key(session_key, bn_key, privkey))) {
+    if(0 > (session_key_len = DH_compute_key(session_key, bn_server_key, privkey))) {
         fprintf(stderr, "Error in computing secret\n");
         exit(-1);
     }
