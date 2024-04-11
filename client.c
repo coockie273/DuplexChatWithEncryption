@@ -12,6 +12,8 @@
 #include <openssl/dh.h>
 #include <openssl/evp.h>
 #include <openssl/blowfish.h>
+#include <openssl/sha.h>
+
 
 #define MAX_DATA_SIZE 80
 #define KEY_SIZE 16
@@ -26,26 +28,24 @@ void generate_session_key(int *sock) {
     DH *privkey;
     int codes;
 
-    printf("Ok\n");
+    printf("Generating session key with DH algorithm...\n");
+
     /* Generate the parameters to be used */
     if(NULL == (privkey = DH_new())) {
         fprintf(stderr, "Error for initialize DH\n");
         exit(-1);
     }
-    printf("Ok2\n");
+
     if(1 != DH_generate_parameters_ex(privkey, 1024, DH_GENERATOR_2, 0)) {
         fprintf(stderr, "Error for params creating\n");
         exit(-1);
     }
-    printf("Ok3\n");
 
     /* Check parameters */
     if(1 != DH_check(privkey, &codes)) {
         fprintf(stderr, "Error for DH check\n");
         exit(-1);
     }
-
-    printf("123\n");
 
     if(codes != 0)
     {
@@ -59,11 +59,10 @@ void generate_session_key(int *sock) {
         exit(-1);
     }
 
-    char* pub_key = DH_get0_pub_key(privkey);
+    char* pub_key = BN_bn2hex(DH_get0_pub_key(privkey));
 
     /* Sharing public keys */
     send(*sock, pub_key, sizeof(pub_key), 0);
-    printf("Public key sent to server\n");
 
     int bytes_received = recv(*sock, pub_key, sizeof(pub_key), 0);
     if (bytes_received < 0) {
@@ -71,32 +70,33 @@ void generate_session_key(int *sock) {
         exit(-1);
     }
 
+    BIGNUM *bn_key = BN_new();
+    BN_hex2bn(&bn_key, pub_key);
 
     /* Compute the shared secret */
 
-    if(NULL == (session_key = OPENSSL_malloc(sizeof(unsigned char) * (DH_size(privkey))))) {
-        fprintf(stderr, "Memory error\n");
-        exit(-1);
-    }
+    session_key = malloc(sizeof(privkey));
 
-    if(0 > (session_key_len = DH_compute_key(session_key, pub_key, privkey))) {
+    if(0 > (session_key_len = DH_compute_key(session_key, bn_key, privkey))) {
         fprintf(stderr, "Error in computing secret\n");
         exit(-1);
     }
 
     printf("The shared secret is:\n");
     BIO_dump_fp(stdout, session_key, session_key_len);
-
     /* Clean up */
-    BN_free(pub_key);
-    DH_free(privkey);
+    //BN_free(pub_key);
+    //DH_free(privkey);
 
 }
 
 void bf_crypt(const char * message, const char* enc_message, int enc) {
 
+    unsigned char hash[16];
+    memcpy(hash, session_key, 16);
+
     BF_KEY bfkey;
-    BF_set_key(&bfkey, 16, "1234567890123456");
+    BF_set_key(&bfkey, 16, hash);
 
     for (int i = 0; i < MAX_DATA_SIZE / 8; i++)
     {
@@ -215,7 +215,7 @@ int main(int argc, char *argv[])
     }
 
     crypto = ntohl(crypto);
-    
+
     // Generation key for crypto mode
     if (crypto) {
        generate_session_key(&sock);
