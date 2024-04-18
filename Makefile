@@ -1,4 +1,4 @@
-CC=gcc
+cCC=gcc
 build: build_server build_client
 
 rebuild: clean build

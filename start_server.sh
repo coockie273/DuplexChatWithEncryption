@@ -10,11 +10,8 @@ fi
 c=0
 
 # Парсим параметры командной строки
-while getopts ":h:p:c" opt; do
+while getopts ":p:c" opt; do
     case ${opt} in
-        h )
-            host=$OPTARG
-            ;;
         p )
             port=$OPTARG
             ;;
@@ -33,6 +30,6 @@ while getopts ":h:p:c" opt; do
 done
 shift $((OPTIND -1))
 
-# Запускаем вашу программу на языке C с полученными параметрами и значением $c
+# Запускаем рограмму с полученными параметрами и значением $c
 build/server "$port" "$c"
 

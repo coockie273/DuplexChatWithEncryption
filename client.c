@@ -12,14 +12,13 @@
 #include <openssl/dh.h>
 #include <openssl/evp.h>
 #include <openssl/blowfish.h>
-#include <openssl/sha.h>
 
 
 #define MAX_DATA_SIZE 80
 #define KEY_SIZE 16
 
 int crypto = 0;
-unsigned char *session_key;
+unsigned char session_key[256];
 size_t session_key_len;
 
 
@@ -27,6 +26,7 @@ void generate_session_key(int *sock) {
 
     DH *privkey;
     int codes;
+    unsigned char *session_key;
 
     printf("Generating session key with DH algorithm...\n");
 
@@ -36,7 +36,16 @@ void generate_session_key(int *sock) {
         exit(-1);
     }
 
-    if(1 != DH_generate_parameters_ex(privkey, 1024, DH_GENERATOR_2, 0)) {
+    /* Hardcode parameters */
+
+    BIGNUM *p = BN_new();
+    BIGNUM *g = BN_new();
+
+    BN_hex2bn(&p, "957CB8DAA1CD6213167B663555A62B5206A8D94A0CBEB8942572B1D38171BB7F58776B35F562C7CFF72644C1685FD85A24C92DBDF105819E8008D3B35BB3DA328743A8F143A8F1E54B9541D3E0A7753B0C564F3E8D4E366D50D5F83A11985BE2D790035F5560E45E7EC9FB5FE7B26D371D270FFBC8E906A3D79CC9D243121B050AC12F");
+    BN_hex2bn(&g, "02");
+
+    /* Set parameters*/
+    if(1 != DH_set0_pqg(privkey, p, 0, g)) {
         fprintf(stderr, "Error for params creating\n");
         exit(-1);
     }
@@ -60,6 +69,7 @@ void generate_session_key(int *sock) {
     }
 
     char *pub_key = BN_bn2hex(DH_get0_pub_key(privkey));
+
     send(*sock, pub_key, strlen(pub_key), 0);
     free(pub_key);
 
@@ -70,7 +80,6 @@ void generate_session_key(int *sock) {
         exit(-1);
     }
 
-    // Преобразование открытого ключа сервера в BIGNUM
     BIGNUM *bn_server_pub_key = BN_new();
     BN_hex2bn(&bn_server_pub_key, server_pub_key);;
 
@@ -78,26 +87,17 @@ void generate_session_key(int *sock) {
 
     session_key = malloc(sizeof(privkey));
 
-    if(0 > (session_key_len = DH_compute_key(session_key, bn_server_key, privkey))) {
+    if(0 > (session_key_len = DH_compute_key(session_key, bn_server_pub_key, privkey))) {
         fprintf(stderr, "Error in computing secret\n");
         exit(-1);
     }
-
-    printf("The shared secret is:\n");
-    BIO_dump_fp(stdout, session_key, session_key_len);
-    /* Clean up */
-    //BN_free(pub_key);
-    //DH_free(privkey);
 
 }
 
 void bf_crypt(const char * message, const char* enc_message, int enc) {
 
-    unsigned char hash[16];
-    memcpy(hash, session_key, 16);
-
     BF_KEY bfkey;
-    BF_set_key(&bfkey, 16, hash);
+    BF_set_key(&bfkey, session_key_len, session_key);
 
     for (int i = 0; i < MAX_DATA_SIZE / 8; i++)
     {
@@ -127,7 +127,7 @@ void send_message(int *sock)
     if (crypto) {
         char sendbuf_enc[MAX_DATA_SIZE];
         memset(sendbuf_enc, 0, MAX_DATA_SIZE);
-        bf_crypt(sendbuf, sendbuf_enc, BF_DECRYPT);
+        bf_crypt(sendbuf, sendbuf_enc, 0);
         int len;
         if (len = send(*sock, sendbuf_enc, MAX_DATA_SIZE, 0) < 0)
         {
@@ -164,7 +164,7 @@ int recv_message(int *sock)
     if (crypto) {
         char recvbuf_enc[MAX_DATA_SIZE];
         memset(recvbuf_enc, 0, MAX_DATA_SIZE);
-        bf_crypt(recvbuf, recvbuf_enc, BF_ENCRYPT);
+        bf_crypt(recvbuf, recvbuf_enc, 1);
         printf("Received: %s", recvbuf_enc);
         return 1;
     }
