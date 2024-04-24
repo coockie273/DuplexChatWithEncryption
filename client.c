@@ -16,6 +16,8 @@
 
 #define MAX_DATA_SIZE 80
 #define KEY_SIZE 16
+#define KEY_FILE "bf_key.bin"
+
 
 int crypto = 0;
 unsigned char* session_key;
@@ -40,8 +42,14 @@ void generate_session_key(int *sock) {
     BIGNUM *p = BN_new();
     BIGNUM *g = BN_new();
 
-    BN_hex2bn(&p, "EAA9EC1C02ED05D6F6667E779DEDD4D1B152EC06E2D7FEE12A516367AE13655185D16958F96A19BE930813223C4E2596F695F38F5C565217469A5E3193B3B388903EA022706C6E083E7E1EC21D83145FFAC6BE218A17B0FA37DD1C7DED700E1B0503FDE772B6B15F0E8FDF91216517B413CAFE68C98187219C319C713981710F");
-    BN_hex2bn(&g, "02");
+    char g_str[1024];
+    char prime_str[1024];
+
+    recv(*sock, prime_str, sizeof(prime_str), 0);
+    recv(*sock, g_str, sizeof(g_str), 0);
+
+    BN_hex2bn(&p, prime_str);
+    BN_hex2bn(&g, g_str);
 
     /* Set parameters*/
     if(1 != DH_set0_pqg(privkey, p, 0, g)) {
@@ -217,9 +225,23 @@ int main(int argc, char *argv[])
     crypto = ntohl(crypto);
 
     // Generation key for crypto mode
-    if (crypto) {
-       generate_session_key(&sock);
-       printf("The encryption key has been successfully generated\n");
+     if (crypto == 1) {
+        session_key = malloc(16);
+        session_key_len = 16;
+        FILE *key_file = fopen(KEY_FILE, "rb");
+
+        if (key_file == NULL) return -1;
+
+        if (fread(session_key, 16, 1, key_file) != 1)
+        {
+            fclose(key_file);
+            return -1;
+        }
+
+        fclose(key_file);
+    } else if (crypto == 2) {
+        generate_session_key(&sock);
+        printf("Encryption key has been successfully generated\n");
     }
 
     fd_set read_fds;

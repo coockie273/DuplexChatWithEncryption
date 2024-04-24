@@ -16,6 +16,7 @@
 
 #define MAX_DATA_SIZE 80
 #define KEY_SIZE 16
+#define KEY_FILE "bf_key.bin"
 
 int crypto = 0;
 unsigned char* session_key;
@@ -36,14 +37,27 @@ void generate_session_key(int *sock) {
 
     /* Hardcode parameters */
 
-    BIGNUM *p = BN_new();
+    BIGNUM *prime = BN_new();
     BIGNUM *g = BN_new();
 
-    BN_hex2bn(&p, "EAA9EC1C02ED05D6F6667E779DEDD4D1B152EC06E2D7FEE12A516367AE13655185D16958F96A19BE930813223C4E2596F695F38F5C565217469A5E3193B3B388903EA022706C6E083E7E1EC21D83145FFAC6BE218A17B0FA37DD1C7DED700E1B0503FDE772B6B15F0E8FDF91216517B413CAFE68C98187219C319C713981710F");
+    if (!BN_generate_prime_ex(prime, 1024, 1, NULL, NULL, NULL)) {
+        // Обработка ошибки
+        BN_free(prime);
+        return NULL;
+    }
+
+    char *prime_str = BN_bn2hex(prime);
+    printf("prime: %s\n", prime_str);
+    char *g_str = "02";
+
     BN_hex2bn(&g, "02");
 
+    send(*sock, prime_str, strlen(prime_str), 0);
+    send(*sock, g_str, strlen(g_str), 0);
+
+
     /* Set parameters*/
-    if(1 != DH_set0_pqg(privkey, p, 0, g)) {
+    if(1 != DH_set0_pqg(privkey, prime, 0, g)) {
         fprintf(stderr, "Error for params creating\n");
         exit(-1);
     }
@@ -190,6 +204,24 @@ int main(int argc, char *argv[])
 
     crypto = atoi(c);
 
+    if (crypto == 0) {
+
+        printf("Server's working in mode without encryption\n");
+
+    } else if (crypto == 1) {
+
+        printf("Server's working with encryption mode, session key is stored in file\n");
+
+    } else if (crypto == 2) {
+
+        printf("Server's working with encryption mode, session key is generating with dh\n");
+
+    } else {
+        perror("Unknown server mode");
+        exit(-1);
+    }
+
+
     int port_int = atoi(port);
 
     struct sockaddr_in addr;
@@ -262,7 +294,21 @@ int main(int argc, char *argv[])
     }
 
     // Generetion key for crypto mode
-    if (crypto) {
+    if (crypto == 1) {
+        session_key = malloc(16);
+        session_key_len = 16;
+        FILE *key_file = fopen(KEY_FILE, "rb");
+
+        if (key_file == NULL) return -1;
+
+        if (fread(session_key, 16, 1, key_file) != 1)
+        {
+            fclose(key_file);
+            return -1;
+        }
+
+        fclose(key_file);
+    } else if (crypto == 2) {
     	generate_session_key(&client_sock);
     	printf("Encryption key has been successfully generated\n");
     }
