@@ -22,6 +22,7 @@ int crypto = 0;
 unsigned char* session_key;
 size_t session_key_len;
 
+
 void generate_session_key(int *sock) {
 
     DH *privkey;
@@ -40,34 +41,21 @@ void generate_session_key(int *sock) {
     BIGNUM *prime = BN_new();
     BIGNUM *g = BN_new();
 
-    if (!BN_generate_prime_ex(prime, 1024, 1, NULL, NULL, NULL)) {
-        // Обработка ошибки
-        BN_free(prime);
-        return NULL;
+    if (DH_generate_parameters_ex(privkey, 1024, DH_GENERATOR_2, 0) != 1) {
+        return;
     }
 
-    char *prime_str = BN_bn2hex(prime);
-    printf("prime: %s\n", prime_str);
-    char *g_str = "02";
+    while (1 != DH_check(privkey, &codes)) {
+        DH_generate_parameters_ex(privkey, 1024, DH_GENERATOR_2, 0);
+    }
 
-    BN_hex2bn(&g, "02");
+    DH_get0_pqg(privkey,&prime, NULL, &g);
+
+    char *prime_str = BN_bn2hex(prime);
+    char *g_str = BN_bn2hex(g);
 
     send(*sock, prime_str, strlen(prime_str), 0);
     send(*sock, g_str, strlen(g_str), 0);
-
-
-    /* Set parameters*/
-    if(1 != DH_set0_pqg(privkey, prime, 0, g)) {
-        fprintf(stderr, "Error for params creating\n");
-        exit(-1);
-    }
-
-
-    /* Check parameters */
-    if(1 != DH_check(privkey, &codes)) {
-        fprintf(stderr, "Error for DH check\n");
-        exit(-1);
-    }
 
     if(codes != 0)
     {
@@ -93,7 +81,6 @@ void generate_session_key(int *sock) {
         exit(-1);
     }
 
-    // Преобразование открытого ключа сервера в BIGNUM
     BIGNUM *bn_server_pub_key = BN_new();
     BN_hex2bn(&bn_server_pub_key, server_pub_key);;
 

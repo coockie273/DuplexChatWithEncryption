@@ -45,8 +45,8 @@ void generate_session_key(int *sock) {
     char g_str[1024];
     char prime_str[1024];
 
-    recv(*sock, prime_str, sizeof(prime_str), 0);
-    recv(*sock, g_str, sizeof(g_str), 0);
+    int prime_len = recv(*sock, prime_str, sizeof(prime_str), 0);
+    int g_len = recv(*sock, g_str, sizeof(prime_str), 0);
 
     BN_hex2bn(&p, prime_str);
     BN_hex2bn(&g, g_str);
@@ -54,18 +54,6 @@ void generate_session_key(int *sock) {
     /* Set parameters*/
     if(1 != DH_set0_pqg(privkey, p, 0, g)) {
         fprintf(stderr, "Error for params creating\n");
-        exit(-1);
-    }
-
-    /* Check parameters */
-    if(1 != DH_check(privkey, &codes)) {
-        fprintf(stderr, "Error for DH check\n");
-        exit(-1);
-    }
-
-    if(codes != 0)
-    {
-        printf("DH_check failed\n");
         exit(-1);
     }
 
@@ -88,7 +76,7 @@ void generate_session_key(int *sock) {
     }
 
     BIGNUM *bn_server_pub_key = BN_new();
-    BN_hex2bn(&bn_server_pub_key, server_pub_key);;
+    BN_hex2bn(&bn_server_pub_key, server_pub_key);
 
     /* Compute the shared secret */
 
@@ -98,6 +86,13 @@ void generate_session_key(int *sock) {
         fprintf(stderr, "Error in computing secret\n");
         exit(-1);
     }
+
+    //BN_free(bn_server_pub_key);
+
+    //BN_free(p);
+    //BN_free(g);
+
+    //DH_free(privkey);
 
 }
 
