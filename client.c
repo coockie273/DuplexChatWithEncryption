@@ -37,8 +37,6 @@ void generate_session_key(int *sock) {
         exit(-1);
     }
 
-    /* Hardcode parameters */
-
     BIGNUM *p = BN_new();
     BIGNUM *g = BN_new();
 
