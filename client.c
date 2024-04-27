@@ -211,7 +211,7 @@ int main(int argc, char *argv[])
     crypto = ntohl(crypto);
 
     // Generation key for crypto mode
-     if (crypto == 1) {
+    if (crypto == 1) {
         session_key = malloc(16);
         session_key_len = 16;
         FILE *key_file = fopen(KEY_FILE, "rb");
