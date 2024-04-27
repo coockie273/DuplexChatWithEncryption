@@ -85,13 +85,6 @@ void generate_session_key(int *sock) {
         exit(-1);
     }
 
-    //BN_free(bn_server_pub_key);
-
-    //BN_free(p);
-    //BN_free(g);
-
-    //DH_free(privkey);
-
 }
 
 void bf_crypt(const char * message, const char* enc_message, int enc) {
