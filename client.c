@@ -48,8 +48,14 @@ void generate_session_key(int *sock) {
     int prime_len = recv(*sock, prime_str, sizeof(prime_str), 0);
     int g_len = recv(*sock, g_str, sizeof(prime_str), 0);
 
+    prime_str[prime_len] = '\0';
+    g_str[g_len] = '\0';
+
     BN_hex2bn(&p, prime_str);
     BN_hex2bn(&g, g_str);
+
+    printf("%s\n", g_str);
+    printf("%s\n", prime_str);
 
     /* Set parameters*/
     if(1 != DH_set0_pqg(privkey, p, 0, g)) {
