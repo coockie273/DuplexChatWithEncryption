@@ -57,6 +57,9 @@ void generate_session_key(int *sock) {
     send(*sock, prime_str, strlen(prime_str), 0);
     send(*sock, g_str, strlen(g_str), 0);
 
+    printf("%s\n", prime_str);
+    printf("%s\n", g_str);
+
     if(codes != 0)
     {
         printf("DH_check failed\n");
